@@ -32,9 +32,9 @@
     },
     {
       "min": 0,
-      "title": "不赖猪",
+      "title": "常猪",
       "text": "目标玩家：{name}\n近期平均IMP为：{average}\n一眼盯真 鉴定为",
-      "image": "assets/不赖猪.jpg"
+      "image": "assets/常猪.png"
     },
     {
       "min": 5,
