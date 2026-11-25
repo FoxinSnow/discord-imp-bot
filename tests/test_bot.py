@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 import json
 import math
 import sys
@@ -11,10 +10,11 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock, call
+from unittest.mock import AsyncMock, Mock, call, patch
 
 import aiohttp
 import discord
+from discord.ext import commands
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -24,7 +24,9 @@ from impbot.core import (
     format_score, load_rules, load_unavailable, parse_friend_code, render_text, select_rule, summarize,
     validate_match_count,
 )
-from impbot.discord_app import COMMAND_NAME, ImpClient, make_embed
+from impbot.discord_app import (
+    COMMAND_NAME, COMMAND_PREFIX, REBOOT_ADMIN_USER_ID, ImpClient, make_embed,
+)
 from impbot.stratz import QUERY, StratzClient, parse_history, parse_valid_history
 
 ACCOUNT = 123456789
@@ -497,96 +499,89 @@ class DiscordCommandTests(unittest.IsolatedAsyncioTestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.root = Path(self.directory.name)
         write_config(self.root)
-        self.client = ImpClient(self.root, "placeholder", None, 60)
+        self.client = ImpClient(self.root, "placeholder", 60)
         self.client.stratz = SimpleNamespace(fetch_history=AsyncMock(return_value=history([10] * 20)))
-        self.command = self.client.tree.get_command(COMMAND_NAME)
-        self.interaction = SimpleNamespace(
-            guild_id=None,
-            response=SimpleNamespace(send_message=AsyncMock(), defer=AsyncMock()),
-            followup=SimpleNamespace(send=AsyncMock()),
-            user=SimpleNamespace(id=42),
-            created_at=datetime.now(timezone.utc),
+        self.command = self.client.get_command(COMMAND_NAME)
+        self.ctx = SimpleNamespace(
+            author=SimpleNamespace(id=42),
+            guild=None,
+            reply=AsyncMock(),
         )
 
     async def asyncTearDown(self):
         await self.client.close()
         self.directory.cleanup()
 
-    async def test_exact_chinese_command_and_option_names(self):
+    async def test_exact_prefix_command_names_and_parameters(self):
+        self.assertEqual(self.client.command_prefix, COMMAND_PREFIX)
+        self.assertEqual(COMMAND_PREFIX, "!")
+        self.assertTrue(self.client.intents.message_content)
         for name in ("查询受教育程度", "查询"):
             with self.subTest(name=name):
-                command = self.client.tree.get_command(name)
+                command = self.client.get_command(name)
                 self.assertIsNotNone(command)
-                self.assertEqual(command.name, name)
-                self.assertEqual(len(command.parameters), 2)
-                friend_code, match_count = command.parameters
-                self.assertEqual(friend_code.display_name, "好友码")
-                self.assertTrue(friend_code.required)
-                self.assertEqual(friend_code.type, discord.AppCommandOptionType.string)
-                self.assertEqual(match_count.display_name, "场数")
-                self.assertFalse(match_count.required)
+                self.assertIs(command, self.command)
+                friend_code, match_count = command.clean_params.values()
+                self.assertEqual(friend_code.name, "friend_code")
+                self.assertEqual(friend_code.annotation, str)
+                self.assertEqual(match_count.name, "match_count")
+                self.assertEqual(match_count.annotation, int)
                 self.assertEqual(match_count.default, 20)
-                self.assertEqual(match_count.type, discord.AppCommandOptionType.integer)
-                self.assertEqual(match_count.min_value, 1)
-                self.assertEqual(match_count.max_value, 100)
 
     async def test_both_commands_share_callback_and_user_cooldown(self):
-        alias = self.client.tree.get_command("查询")
-        self.assertIs(alias.callback, self.command.callback)
-        self.assertEqual(len(self.command.checks), 1)
-        self.assertIs(alias.checks[0], self.command.checks[0])
-        self.assertTrue(await self.command._check_can_run(self.interaction))
-        with self.assertRaises(discord.app_commands.CommandOnCooldown):
-            await alias._check_can_run(self.interaction)
-        other_user = SimpleNamespace(user=SimpleNamespace(id=43), created_at=self.interaction.created_at)
-        self.assertTrue(await alias._check_can_run(other_user))
+        alias = self.client.get_command("查询")
+        self.assertIs(alias, self.command)
+        cooldown = self.command._buckets._cooldown
+        self.assertEqual(cooldown.rate, 1)
+        self.assertEqual(cooldown.per, 10)
+        self.assertEqual(self.command._buckets._type, commands.BucketType.user)
 
-    async def test_invalid_code_is_private_and_does_not_fetch(self):
-        await self.command.callback(self.interaction, "invalid")
-        self.interaction.response.send_message.assert_awaited_once()
-        self.assertTrue(self.interaction.response.send_message.call_args.kwargs["ephemeral"])
-        self.interaction.response.defer.assert_not_awaited()
+    async def test_invalid_code_replies_and_does_not_fetch(self):
+        await self.command.callback(self.ctx, "invalid")
+        self.ctx.reply.assert_awaited_once()
+        self.assertTrue(self.ctx.reply.call_args.args[0])
+        self.assertFalse(self.ctx.reply.call_args.kwargs["mention_author"])
         self.client.stratz.fetch_history.assert_not_awaited()
 
-    async def test_success_defers_then_sends_embed(self):
-        await self.command.callback(self.interaction, str(ACCOUNT))
-        self.interaction.response.defer.assert_awaited_once_with(thinking=True)
+    async def test_success_sends_embed(self):
+        await self.command.callback(self.ctx, str(ACCOUNT))
         self.client.stratz.fetch_history.assert_awaited_once_with(ACCOUNT, 20)
-        sent = self.interaction.followup.send.call_args.kwargs
+        sent = self.ctx.reply.call_args.kwargs
         self.assertIsInstance(sent["embed"], discord.Embed)
         self.assertNotIn("file", sent)
+        self.assertFalse(sent["mention_author"])
 
     async def test_both_commands_pass_explicit_selected_match_count(self):
         for name, count in (("查询受教育程度", 5), ("查询", 3)):
             with self.subTest(name=name, count=count):
                 self.client.stratz.fetch_history.reset_mock()
                 self.client.stratz.fetch_history.return_value = history([10] * count)
-                command = self.client.tree.get_command(name)
-                await command.callback(self.interaction, str(ACCOUNT), count)
+                command = self.client.get_command(name)
+                await command.callback(self.ctx, str(ACCOUNT), count)
                 self.client.stratz.fetch_history.assert_awaited_once_with(ACCOUNT, count)
 
     async def test_command_complete_history_keeps_fixed_reply_without_cache_note(self):
         self.client.cache_ttl = 300
         self.client.stratz.fetch_history.return_value = history([10] * 20)
-        await self.command.callback(self.interaction, str(ACCOUNT))
-        embed = self.interaction.followup.send.call_args.kwargs["embed"]
+        await self.command.callback(self.ctx, str(ACCOUNT))
+        embed = self.ctx.reply.call_args.kwargs["embed"]
         self.assertEqual(embed.description, "目标玩家近期平均IMP为：+10.00\n一眼盯真 鉴定为")
         self.assertFalse(embed.title)
         self.assertEqual(embed.fields, [])
         self.assertFalse(embed.footer.text)
 
-    async def test_stratz_error_is_private(self):
+    async def test_stratz_error_is_reported(self):
         self.client.stratz.fetch_history.side_effect = UserError("公开数据不可用")
-        await self.command.callback(self.interaction, str(ACCOUNT))
-        self.interaction.followup.send.assert_awaited_once_with("公开数据不可用", ephemeral=True)
+        await self.command.callback(self.ctx, str(ACCOUNT))
+        self.ctx.reply.assert_awaited_once_with("公开数据不可用", mention_author=False)
 
     async def test_null_player_uses_mystery_reply_and_local_attachment(self):
         image = self.root / "mystery.jpg"
         image.write_bytes(b"\xff\xd8\xff\xe0\x00\x10JFIF")
         write_config(self.root, unavailable_image="mystery.jpg")
         self.client.stratz.fetch_history.return_value = parse_history({"data": {"player": None}}, ACCOUNT)
-        await self.command.callback(self.interaction, str(ACCOUNT))
-        sent = self.interaction.followup.send.call_args.kwargs
+        await self.command.callback(self.ctx, str(ACCOUNT))
+        sent = self.ctx.reply.call_args.kwargs
         self.assertEqual(sent["embed"].description, "神秘嘉宾来袭")
         self.assertEqual(sent["embed"].image.url, f"attachment://{sent['file'].filename}")
         self.assertFalse(sent["embed"].title)
@@ -598,26 +593,26 @@ class DiscordCommandTests(unittest.IsolatedAsyncioTestCase):
         session = Mock()
         session.post.return_value = FakeResponse(status=401)
         self.client.stratz = StratzClient(session, "placeholder")
-        await self.command.callback(self.interaction, str(ACCOUNT))
-        self.interaction.followup.send.assert_awaited_once()
-        sent = self.interaction.followup.send.call_args
+        await self.command.callback(self.ctx, str(ACCOUNT))
+        self.ctx.reply.assert_awaited_once()
+        sent = self.ctx.reply.call_args
         self.assertIn("401", sent.args[0])
-        self.assertTrue(sent.kwargs["ephemeral"])
+        self.assertFalse(sent.kwargs["mention_author"])
         self.assertNotIn("神秘嘉宾", sent.args[0])
         self.assertNotIn("embed", sent.kwargs)
 
-    async def test_bad_rule_config_is_reported_privately(self):
+    async def test_bad_rule_config_is_reported(self):
         (self.root / "config.json").write_text("{broken", encoding="utf-8")
-        await self.command.callback(self.interaction, str(ACCOUNT))
-        self.interaction.followup.send.assert_awaited_once_with(
-            "评价或图片配置有误，请让管理员检查 config.json。", ephemeral=True)
+        await self.command.callback(self.ctx, str(ACCOUNT))
+        self.ctx.reply.assert_awaited_once_with(
+            "评价或图片配置有误，请让管理员检查 config.json。", mention_author=False)
 
     async def test_local_file_is_sent_with_embed_reference(self):
         image = self.root / "rating.png"
         image.write_bytes(b"\x89PNG\r\n\x1a\n")
         write_config(self.root, image="rating.png")
-        await self.command.callback(self.interaction, str(ACCOUNT))
-        sent = self.interaction.followup.send.call_args.kwargs
+        await self.command.callback(self.ctx, str(ACCOUNT))
+        sent = self.ctx.reply.call_args.kwargs
         self.assertEqual(sent["file"].filename, "rating.png")
         self.assertEqual(sent["embed"].image.url, "attachment://rating.png")
         self.assertTrue(sent["file"].fp.closed)
@@ -626,37 +621,30 @@ class DiscordCommandTests(unittest.IsolatedAsyncioTestCase):
         (self.root / "rating.png").write_bytes(b"\x89PNG\r\n\x1a\n")
         write_config(self.root, image="rating.png")
         error = discord.HTTPException(SimpleNamespace(status=413, reason="Too large"), "upload failed")
-        self.interaction.followup.send.side_effect = [error, None]
-        await self.command.callback(self.interaction, str(ACCOUNT))
-        self.assertEqual(self.interaction.followup.send.await_count, 2)
-        fallback = self.interaction.followup.send.call_args.kwargs
+        self.ctx.reply.side_effect = [error, None]
+        await self.command.callback(self.ctx, str(ACCOUNT))
+        self.assertEqual(self.ctx.reply.await_count, 2)
+        fallback = self.ctx.reply.call_args.kwargs
         self.assertIn("图片暂时发送失败", fallback["content"])
         self.assertFalse(fallback["embed"].image.url)
         self.assertNotIn("file", fallback)
-        failed_attachment = self.interaction.followup.send.call_args_list[0].kwargs["file"]
+        failed_attachment = self.ctx.reply.call_args_list[0].kwargs["file"]
         self.assertTrue(failed_attachment.fp.closed)
 
-    async def test_guild_join_only_restores_commands_in_configured_guild(self):
-        copy_global_to = self.client.tree.copy_global_to
-        self.client.tree.copy_global_to = Mock(wraps=copy_global_to)
-        self.client.tree.sync = AsyncMock(return_value=[])
-        for configured_id, joined_id, should_sync in ((77, 77, True), (77, 88, False), (None, 77, False)):
-            with self.subTest(configured_id=configured_id, joined_id=joined_id):
-                self.client.guild_id = configured_id
-                self.client.tree.copy_global_to.reset_mock()
-                self.client.tree.sync.reset_mock()
-                guild = discord.Object(id=joined_id)
-                await self.client.on_guild_join(guild)
-                if should_sync:
-                    self.client.tree.copy_global_to.assert_called_once_with(guild=guild)
-                    self.client.tree.sync.assert_awaited_once_with(guild=guild)
-                    self.assertEqual(
-                        {command.name for command in self.client.tree.get_commands(guild=guild)},
-                        {"查询受教育程度", "查询", "reboot"},
-                    )
-                else:
-                    self.client.tree.copy_global_to.assert_not_called()
-                    self.client.tree.sync.assert_not_awaited()
+    async def test_reboot_is_registered_and_restricted_to_admin(self):
+        reboot = self.client.get_command("reboot")
+        self.assertIsNotNone(reboot)
+        denied = SimpleNamespace(author=SimpleNamespace(id=42), reply=AsyncMock())
+        await reboot.callback(denied)
+        denied.reply.assert_not_awaited()
+
+        allowed = SimpleNamespace(author=SimpleNamespace(id=REBOOT_ADMIN_USER_ID), reply=AsyncMock())
+        with patch("impbot.discord_app.asyncio.sleep", new=AsyncMock()) as sleep, \
+                patch("impbot.discord_app.os._exit", new=Mock()) as exit_process:
+            await reboot.callback(allowed)
+            allowed.reply.assert_awaited_once_with("正在拉取更新并重启机器人。", mention_author=False)
+            sleep.assert_awaited_once_with(1)
+            exit_process.assert_called_once_with(1)
 
 
 if __name__ == "__main__":

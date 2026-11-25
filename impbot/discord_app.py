@@ -7,7 +7,7 @@ from pathlib import Path
 
 import aiohttp
 import discord
-from discord import app_commands
+from discord.ext import commands
 
 from .core import (
     DEFAULT_MATCH_COUNT, MAX_MATCH_COUNT, ConfigError, Summary, UserError, is_remote_image,
@@ -17,8 +17,8 @@ from .core import (
 from .stratz import StratzClient
 
 LOGGER = logging.getLogger(__name__)
+COMMAND_PREFIX = "!"
 COMMAND_NAME = "查询受教育程度"
-COMMAND_NAMES = (COMMAND_NAME, "查询")
 REBOOT_COMMAND_NAME = "reboot"
 REBOOT_ADMIN_USER_ID = 556537278118232066
 
@@ -70,43 +70,44 @@ def make_embed(
     return embed, image_path
 
 
-class ImpClient(discord.Client):
-    def __init__(self, root: Path, stratz_token: str, guild_id: int | None, cache_ttl: int):
+class ImpClient(commands.Bot):
+    def __init__(self, root: Path, stratz_token: str, cache_ttl: int):
         intents = discord.Intents.none()
         intents.guilds = True
-        super().__init__(intents=intents, allowed_mentions=discord.AllowedMentions.none())
+        intents.message_content = True
+        super().__init__(
+            command_prefix=COMMAND_PREFIX,
+            intents=intents,
+            allowed_mentions=discord.AllowedMentions.none(),
+            help_command=None,
+        )
         self.root = root
         self.stratz_token = stratz_token
-        self.guild_id = guild_id
         self.cache_ttl = cache_ttl
         self.session: aiohttp.ClientSession | None = None
         self.stratz: StratzClient | None = None
-        self.tree = app_commands.CommandTree(self)
+        self._guild_slash_commands_cleared = False
         self._register_commands()
 
     def _register_commands(self) -> None:
-        @app_commands.rename(friend_code="好友码", match_count="场数")
-        @app_commands.describe(
-            friend_code="Dota 2 数字好友码（也支持 SteamID64）",
-            match_count=f"查询最近多少把有有效 IMP 的对局，不填默认 {DEFAULT_MATCH_COUNT} 把（1–100）",
-        )
-        @app_commands.checks.cooldown(1, 10, key=lambda interaction: interaction.user.id)
+        @self.command(name=COMMAND_NAME, aliases=("查询",))
+        @commands.cooldown(1, 10, commands.BucketType.user)
         async def query_education(
-            interaction: discord.Interaction,
+            ctx: commands.Context,
             friend_code: str,
-            match_count: app_commands.Range[int, 1, MAX_MATCH_COUNT] = DEFAULT_MATCH_COUNT,
+            match_count: int = DEFAULT_MATCH_COUNT,
         ) -> None:
             try:
                 account_id = parse_friend_code(friend_code)
                 match_count = validate_match_count(match_count)
             except UserError as exc:
-                await interaction.response.send_message(str(exc), ephemeral=True)
+                await ctx.reply(str(exc), mention_author=False)
                 return
-            await interaction.response.defer(thinking=True)
             assert self.stratz is not None
             try:
                 summary = summarize(await self.stratz.fetch_history(account_id, match_count))
-                config_path = config_path_for_guild(self.root, interaction.guild_id)
+                guild_id = ctx.guild.id if ctx.guild else None
+                config_path = config_path_for_guild(self.root, guild_id)
                 embed, image_path = make_embed(
                     summary,
                     self.root,
@@ -114,87 +115,70 @@ class ImpClient(discord.Client):
                     config_path=config_path,
                 )
             except UserError as exc:
-                await interaction.followup.send(str(exc), ephemeral=True)
+                await ctx.reply(str(exc), mention_author=False)
                 return
             except ConfigError:
                 LOGGER.exception("Invalid rule or image configuration")
-                await interaction.followup.send("评价或图片配置有误，请让管理员检查 config.json。", ephemeral=True)
+                await ctx.reply("评价或图片配置有误，请让管理员检查 config.json。", mention_author=False)
                 return
             if image_path:
                 try:
                     attachment = discord.File(image_path, filename=f"rating{image_path.suffix.lower()}")
                     try:
-                        await interaction.followup.send(embed=embed, file=attachment)
+                        await ctx.reply(embed=embed, file=attachment, mention_author=False)
                     finally:
                         attachment.close()
                 except (OSError, discord.HTTPException):
                     # A file can disappear or fail to upload between validation and send.
                     embed.set_image(url=None)
-                    await interaction.followup.send(content="图片暂时发送失败，先显示鉴定结果。", embed=embed)
+                    await ctx.reply(
+                        content="图片暂时发送失败，先显示鉴定结果。",
+                        embed=embed,
+                        mention_author=False,
+                    )
             else:
-                await interaction.followup.send(embed=embed)
+                await ctx.reply(embed=embed, mention_author=False)
 
-        # Both aliases use the same callback and cooldown predicate.
-        for name in COMMAND_NAMES:
-            self.tree.add_command(app_commands.Command(
-                name=name,
-                description=f"根据 STRATZ 最近有效 IMP 鉴定受教育程度（默认 {DEFAULT_MATCH_COUNT} 把有效对局）",
-                callback=query_education,
-            ))
-
-        @self.tree.command(name=REBOOT_COMMAND_NAME, description="请求托管服务器重启机器人")
-        @app_commands.guild_only()
-        async def reboot(interaction: discord.Interaction) -> None:
-            if interaction.user.id != REBOOT_ADMIN_USER_ID:
-                await interaction.response.send_message("你没有权限重启机器人。", ephemeral=True)
+        @self.command(name=REBOOT_COMMAND_NAME)
+        @commands.guild_only()
+        async def reboot(ctx: commands.Context) -> None:
+            if ctx.author.id != REBOOT_ADMIN_USER_ID:
                 return
-            await interaction.response.send_message("正在拉取更新并重启机器人。")
+            await ctx.reply("正在拉取更新并重启机器人。", mention_author=False)
             await asyncio.sleep(1)
             # The hosting panel pulls the latest commit when exit code 1 triggers a restart.
             os._exit(1)
 
-        @self.tree.error
-        async def on_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
-            if isinstance(error, app_commands.CommandOnCooldown):
-                message = f"查询太快了，请 {error.retry_after:.0f} 秒后再试。"
-            else:
-                LOGGER.error("Command failed", exc_info=(type(error), error, error.__traceback__))
-                message = "查询出现异常，请稍后重试或查看机器人运行日志。"
-            if interaction.response.is_done():
-                await interaction.followup.send(message, ephemeral=True)
-            else:
-                await interaction.response.send_message(message, ephemeral=True)
-
     async def setup_hook(self) -> None:
         load_unavailable(self.root / "config.json")
+        self.tree.clear_commands(guild=None)
+        await self.tree.sync()
         self.session = aiohttp.ClientSession()
         self.stratz = StratzClient(self.session, self.stratz_token, self.cache_ttl)
-        if self.guild_id:
-            guild = discord.Object(id=self.guild_id)
-            self.tree.copy_global_to(guild=guild)
-            await self.tree.sync(guild=guild)
-            LOGGER.info("Command synced to guild %d", self.guild_id)
-        else:
-            await self.tree.sync()
-            LOGGER.info("Command synced globally")
 
-    async def on_guild_join(self, guild: discord.Guild) -> None:
-        if guild.id != self.guild_id:
+    async def on_command_error(self, ctx: commands.Context, error: commands.CommandError) -> None:
+        if isinstance(error, commands.CommandNotFound):
             return
-        try:
-            self.tree.copy_global_to(guild=guild)
-            await self.tree.sync(guild=guild)
-        except Exception as exc:
-            # Exception bodies can contain remote response details. Keep the
-            # failure actionable without printing credentials or raw payloads.
-            LOGGER.error(
-                "Failed to sync commands on guild join: guild=%d error=%s status=%s code=%s",
-                guild.id, type(exc).__name__, getattr(exc, "status", None), getattr(exc, "code", None),
-            )
+        if isinstance(error, commands.CommandOnCooldown):
+            message = f"查询太快了，请 {error.retry_after:.0f} 秒后再试。"
+        elif isinstance(error, commands.MissingRequiredArgument):
+            message = f"用法：{COMMAND_PREFIX}查询 好友码 [场数]"
+        elif isinstance(error, commands.BadArgument):
+            message = f"场数必须是 1–{MAX_MATCH_COUNT} 之间的整数。"
+        elif isinstance(error, commands.NoPrivateMessage):
+            message = "该命令只能在服务器中使用。"
         else:
-            LOGGER.info("Commands synced on guild join: guild=%d", guild.id)
+            LOGGER.error("Command failed", exc_info=(type(error), error, error.__traceback__))
+            message = "查询出现异常，请稍后重试或查看机器人运行日志。"
+        await ctx.reply(message, mention_author=False)
 
     async def on_ready(self) -> None:
+        if not self._guild_slash_commands_cleared:
+            for guild in self.guilds:
+                self.tree.clear_commands(guild=guild)
+                await self.tree.sync(guild=guild)
+            self._guild_slash_commands_cleared = True
+            LOGGER.info("Legacy slash commands removed")
         LOGGER.info("Bot connected: %s", self.user)
 
     async def close(self) -> None:

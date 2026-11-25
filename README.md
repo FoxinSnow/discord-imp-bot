@@ -1,15 +1,15 @@
 # Discord 受教育程度查询机器人
 
-在 Discord 输入 `/查询受教育程度 好友码:123456789` 或 `/查询 好友码:123456789`，机器人默认从 STRATZ 查询该玩家最近 20 把有有效 IMP 的对局，计算平均 IMP，再按区间选择指定图片。两条命令功能相同，也可以添加可选的“场数”整数参数，范围为 1–100，表示要查询的有效对局数量：
+在 Discord 输入 `!查询 123456789` 或 `!查询受教育程度 123456789`，机器人默认从 STRATZ 查询该玩家最近 20 把有有效 IMP 的对局，计算平均 IMP，再按区间选择指定图片。两条命令功能相同，也可以在好友码后添加可选的场数，范围为 1–100：
 
 ```text
-/查询受教育程度 好友码:123456789
-/查询 好友码:123456789
-/查询受教育程度 好友码:123456789 场数:5
-/查询 好友码:123456789 场数:5
+!查询受教育程度 123456789
+!查询 123456789
+!查询受教育程度 123456789 5
+!查询 123456789 5
 ```
 
-使用 Discord 的 Slash Command 参数框填写好友码，再按需填写场数；不填场数时查询最近 20 把有效对局。例如 `场数:5` 表示最近 5 把有 IMP 的对局；中间没有 IMP 的比赛会跳过。“好友码”是必填字符串参数，保留为字符串以免大整数被截断。回复采用固定文案：
+命令各部分使用空格分隔；不填场数时查询最近 20 把有效对局。例如 `!查询 123456789 5` 表示最近 5 把有 IMP 的对局；中间没有 IMP 的比赛会跳过。好友码为必填的数字字符串。回复采用固定文案：
 
 ```text
 目标玩家近期平均IMP为：+10.00
@@ -23,12 +23,12 @@
 
 Python 3.10+，使用 `discord.py` 和 STRATZ GraphQL。已接入用户提供的四张评分图片，从低到高依次为“苯猪 → 猪bee → 不赖猪 → 好猪好猪”，以及查不到时的抱猪备用图片。
 
-截至 2026-10-12，应用当前名称为“IceTeee”，机器人账号仍为“一眼盯真”（ID `1559419206779412560`）。本次已修正服务器安装 scopes，将机器人重新加入“摸渔”服务器（ID `821315791059943424`）；测试频道为[机器愣](https://discord.com/channels/821315791059943424/966752907712163890)。默认场数为最近 20 把有效对局，48 项离线测试通过。本次安装修复后已在“摸渔·机器愣”实测 `/查询受教育程度 好友码:415940780`，不填场数返回平均 −14.90 与苯猪图片，且没有样本不足页脚。此前真实 STRATZ 查询好友码 `415940780`：5 场取得 5 个有效 IMP，平均 −10.60；20 场取得 20 个有效 IMP，平均 −14.90。此前 Discord 频道实测已确认两条命令的 5 场与 20 场查询均使用固定文案与苯猪图片，且没有样本不足页脚；备用分支 `/查询 好友码:4294967295` 返回“神秘嘉宾来袭”和抱猪图片，不显示平均值或页脚。
+应用当前名称为“IceTeee”，机器人账号为“一眼盯真”（ID `1559419206779412560`）。默认场数为最近 20 把有效对局。维护者（Discord 用户 ID `556537278118232066`）在 push 更新后可执行 `!reboot`，由托管面板拉取最新提交并重启 Bot。
 
 ## 1. 准备两个 token
 
 1. 打开 [Discord Developer Portal](https://discord.com/developers/applications)，新建 Application，在 Bot 页面取得 **Bot Token**。
-2. 在 Installation 页面关闭 **User Install**，启用 **Guild Install（服务器安装）**。Guild Install 的默认 scopes 必须包含 `bot` 和 `applications.commands`；给机器人 `View Channels`、`Send Messages`、`Embed Links`、`Attach Files` 权限，生成服务器邀请链接并安装到你的服务器。
+2. 在 Bot 页面启用 **Message Content Intent**。在 Installation 页面关闭 **User Install**，启用 **Guild Install（服务器安装）**；scope 需包含 `bot`，并给机器人 `View Channels`、`Send Messages`、`Embed Links`、`Attach Files` 权限。
 3. 在 Discord 开启开发者模式，右键服务器复制服务器 ID。
 4. 登录 [STRATZ API](https://stratz.com/api)，用 Steam 登录后取得 API token。
 5. 复制 `.env.example` 为 `.env`，在本地填写：
@@ -36,17 +36,14 @@ Python 3.10+，使用 `discord.py` 和 STRATZ GraphQL。已接入用户提供的
 ```dotenv
 DISCORD_BOT_TOKEN=你的Discord机器人token
 STRATZ_API_TOKEN=你的STRATZ_API_token
-DISCORD_GUILD_ID=你的服务器ID
 CACHE_TTL_SECONDS=60
 ```
 
-Token 填进本地文件即可。本机测试用 token 保存在本地 `.env`，交付 ZIP 不包含 `.env`；在其他机器解压后需自行填写。机器人采用 Slash Command，不需要开启 Message Content Intent。
+Token 填进本地文件即可。本机测试用 token 保存在本地 `.env`，交付 ZIP 不包含 `.env`；在其他机器解压后需自行填写。前缀命令需要 Message Content Intent。
 
-现有机器人重新安装到“摸渔”可使用[固定服务器安装链接](https://discord.com/oauth2/authorize?client_id=1559419206779412560&scope=bot%20applications.commands&permissions=52224&guild_id=821315791059943424&disable_guild_select=true&integration_type=0)，它包含所需 scopes 和上述四项权限，并固定选择“摸渔”。看到应用“授权成功”后，还需确认服务器成员列表里有机器人“一眼盯真”；如果邀请链接只有 `applications.commands` 而缺少 `bot`，应用可授权成功，但机器人不会加入服务器。遇到这种情况，用正确的服务器安装链接重新安装。
+现有机器人重新安装到“摸渔”可使用[固定服务器安装链接](https://discord.com/oauth2/authorize?client_id=1559419206779412560&scope=bot&permissions=52224&guild_id=821315791059943424&disable_guild_select=true&integration_type=0)，它包含所需权限，并固定选择“摸渔”。
 
-机器人重新加入 `.env` 中 `DISCORD_GUILD_ID` 指定的服务器时，会自动同步 `/查询受教育程度` 和 `/查询` 两条命令；该功能用于恢复移除后重新安装的服务器命令。
-
-服务器 ID 留空会注册全局命令。初次测试建议填服务器 ID，便于立即在该服务器看到命令。机器人通过 Discord Gateway 连接，不需要配置 Interactions Endpoint URL 或公网 Web 服务器。
+前缀命令无需向 Discord 同步命令列表；新版首次启动会清除应用以前注册的 Slash Command。Bot 上线后即可在有权限读写的频道使用。机器人通过 Discord Gateway 连接，不需要配置 Interactions Endpoint URL 或公网 Web 服务器。
 
 ## 2. Windows 启动
 
@@ -56,7 +53,7 @@ Token 填进本地文件即可。本机测试用 token 保存在本地 `.env`，
 powershell -ExecutionPolicy Bypass -File .\start.ps1
 ```
 
-脚本会查找已安装的 Python 3.10+、创建 `.venv` 并安装依赖。若没有 `.env`，先创建空模板并退出；填写后再次运行。看到 `Bot connected` 后，在有机器人权限的频道输入任一查询命令，并在“好友码”参数框填写数字；“场数”可不填，默认最近 20 把有效对局。
+脚本会查找已安装的 Python 3.10+、创建 `.venv` 并安装依赖。若没有 `.env`，先创建空模板并退出；填写后再次运行。看到 `Bot connected` 后，在有机器人权限的频道输入 `!查询 好友码 [场数]`。
 
 也可以手动启动（`py -3` 应指向 Python 3.10+）：
 
@@ -143,4 +140,4 @@ Dota 2 需要开启“公开比赛数据 / Expose Public Match Data”。STRATZ 
 
 STRATZ 官方将 IMP 定义在 −100 至 +100 区间，正负表现评分可直接作为规则阈值。[IMP 说明](https://github.com/STRATZ-Esports/knowledge-base/issues/21)
 
-Discord 命令名和选项名支持 Unicode 字母，因此可使用“查询受教育程度”“查询”“好友码”和“场数”。[Discord 命令规范](https://docs.discord.com/developers/interactions/application-commands)
+命令前缀为英文半角感叹号 `!`，不接受全角 `！`。

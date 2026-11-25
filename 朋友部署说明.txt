@@ -2,12 +2,11 @@
 
 1. 安装 Python 3.10 或更新版本。
 2. 解压 discord-imp-bot.zip。应用当前名称为“IceTeee”，机器人账号仍为“一眼盯真”，已重新加入“摸渔”服务器。换电脑部署时无需重新创建机器人。
-   如需恢复服务器安装，必须使用 Guild Install（服务器安装），scopes 同时包含 bot 和 applications.commands，并给予 View Channels、Send Messages、Embed Links、Attach Files 权限。
+   在 Discord Developer Portal 的 Bot 页面开启 Message Content Intent。如需恢复服务器安装，Guild Install scope 包含 bot，并给予 View Channels、Send Messages、Embed Links、Attach Files 权限。
    “摸渔”固定恢复安装链接：
-   https://discord.com/oauth2/authorize?client_id=1559419206779412560&scope=bot%20applications.commands&permissions=52224&guild_id=821315791059943424&disable_guild_select=true&integration_type=0
+   https://discord.com/oauth2/authorize?client_id=1559419206779412560&scope=bot&permissions=52224&guild_id=821315791059943424&disable_guild_select=true&integration_type=0
    只有应用“授权成功”不代表机器人已加入服务器；请确认成员列表里有“一眼盯真”。若安装链接缺少 bot scope，使用上方正确链接重新安装。
-   机器人重新加入配置的“摸渔”服务器时，会自动同步 /查询受教育程度 和 /查询 两条命令。
-   安装或重新注册后，若命令无响应或仍显示旧说明，在 Discord 按 Ctrl+R 刷新，再从 Slash 命令列表重新选择命令。
+   前缀命令无需同步 Discord 命令列表。
 3. 当前持有者另行私下提供 .env 文件，将它放在 bot.py 同一目录。ZIP 不含 token；.env 中服务器 ID 为 821315791059943424。
    .env 含机器人和 STRATZ 的 token，只能私下传给可信的部署者，不要发到公开频道或上传公开仓库。
 4. 启动新电脑上的机器人前，先停止原电脑上的机器人进程，避免两边同时运行。
@@ -18,12 +17,12 @@
    脚本会创建运行环境并安装依赖。看到 Bot connected 后即可使用。
 6. 在“摸渔”的机器人可用频道输入：
 
-   /查询 好友码:415940780
+   !查询 415940780
 
    不填场数时，默认查询最近 20 场有有效 IMP 的对局。也可指定 1–100 场，例如：
 
-   /查询 好友码:415940780 场数:5
+   !查询 415940780 5
 
-   /查询受教育程度 使用相同参数，功能相同。
+   !查询受教育程度 使用相同参数，功能相同。维护者 push 后可输入 !reboot 触发托管面板更新重启。
 
 部署电脑和机器人进程需持续运行。关机、休眠或关闭进程后，机器人会离线。

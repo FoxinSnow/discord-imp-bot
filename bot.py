@@ -58,7 +58,7 @@ def main() -> int:
     # Keep Chinese diagnostics readable when stdout is captured on Windows.
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
-    parser = argparse.ArgumentParser(description="Discord /查询受教育程度 机器人")
+    parser = argparse.ArgumentParser(description="Discord !查询 机器人")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--check", action="store_true", help="离线检查配置，不连接 Discord/STRATZ")
     group.add_argument("--check-api", metavar="好友代码", help="用本地 token 验证 STRATZ 实际查询")
@@ -91,18 +91,20 @@ def main() -> int:
             return 0
         token = require_token("DISCORD_BOT_TOKEN")
         stratz_token = require_token("STRATZ_API_TOKEN")
-        guild_id = env_int("DISCORD_GUILD_ID", None, 1, 2**64 - 1)
         cache_ttl = env_int("CACHE_TTL_SECONDS", 60, 0, 3600)
-        client = ImpClient(ROOT, stratz_token, guild_id, int(cache_ttl))
+        client = ImpClient(ROOT, stratz_token, int(cache_ttl))
         client.run(token, log_handler=None)
     except (ConfigError, UserError, OSError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
+        return 1
+    except discord.PrivilegedIntentsRequired:
+        print("Discord 拒绝 Message Content Intent，请在 Developer Portal 的 Bot 页面开启。", file=sys.stderr)
         return 1
     except discord.LoginFailure:
         print("Discord 登录失败，请检查 .env 中的 DISCORD_BOT_TOKEN。", file=sys.stderr)
         return 1
     except discord.Forbidden:
-        print("Discord 拒绝注册命令，请检查机器人邀请权限和服务器 ID。", file=sys.stderr)
+        print("Discord 拒绝机器人操作，请检查邀请和频道权限。", file=sys.stderr)
         return 1
     return 0
 
