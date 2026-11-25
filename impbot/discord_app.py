@@ -74,6 +74,7 @@ class ImpClient(commands.Bot):
     def __init__(self, root: Path, stratz_token: str, cache_ttl: int):
         intents = discord.Intents.none()
         intents.guilds = True
+        intents.messages = True
         intents.message_content = True
         super().__init__(
             command_prefix=COMMAND_PREFIX,
