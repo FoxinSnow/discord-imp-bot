@@ -7,27 +7,27 @@
     {
       "min": null,
       "title": "苯猪",
-      "text": "目标玩家近期平均IMP为：{average}\n一眼盯真 鉴定为",
+      "text": "目标玩家：{name}\n近期平均IMP为：{average}\n一眼盯真 鉴定为",
       "image": "assets/苯猪_1.webp"
     },
     {
       "min": -10,
       "include_min": false,
       "title": "猪bee",
-      "text": "目标玩家近期平均IMP为：{average}\n一眼盯真 鉴定为",
+      "text": "目标玩家：{name}\n近期平均IMP为：{average}\n一眼盯真 鉴定为",
       "image": "assets/猪bee.webp"
     },
     {
       "min": 0,
       "title": "不赖猪",
-      "text": "目标玩家近期平均IMP为：{average}\n一眼盯真 鉴定为",
+      "text": "目标玩家：{name}\n近期平均IMP为：{average}\n一眼盯真 鉴定为",
       "image": "assets/不赖猪.jpg"
     },
     {
       "min": 10,
       "include_min": false,
       "title": "好猪好猪",
-      "text": "目标玩家近期平均IMP为：{average}\n一眼盯真 鉴定为",
+      "text": "目标玩家：{name}\n近期平均IMP为：{average}\n一眼盯真 鉴定为",
       "image": "assets/好猪好猪.webp"
     }
   ]
