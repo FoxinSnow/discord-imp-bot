@@ -19,9 +19,25 @@ COMMAND_NAME = "查询受教育程度"
 COMMAND_NAMES = (COMMAND_NAME, "查询")
 
 
-def make_embed(summary: Summary, root: Path, cache_ttl: int = 60) -> tuple[discord.Embed, Path | None]:
+def config_path_for_guild(root: Path, guild_id: int | None) -> Path:
+    default_path = root / "config.json"
+    if guild_id is not None:
+        guild_path = root / f"config_{guild_id}.json"
+        if guild_path.is_file():
+            return guild_path
+    return default_path
+
+
+def make_embed(
+    summary: Summary,
+    root: Path,
+    cache_ttl: int = 60,
+    config_path: Path | None = None,
+) -> tuple[discord.Embed, Path | None]:
     # Reload on each query so threshold/image changes do not require restart.
-    rules = load_rules(root / "config.json")
+    if config_path is None:
+        config_path = root / "config.json"
+    rules = load_rules(config_path)
     history = summary.history
     embed = discord.Embed(colour=0x5865F2)
     image_path = None
@@ -30,7 +46,7 @@ def make_embed(summary: Summary, root: Path, cache_ttl: int = 60) -> tuple[disco
         embed.description = discord.utils.escape_mentions(render_text(summary, rule))
         image_reference = rule.image
     else:
-        text, image_reference = load_unavailable(root / "config.json")
+        text, image_reference = load_unavailable(config_path)
         embed.description = discord.utils.escape_mentions(text)
     if image_reference:
         if is_remote_image(image_reference):
@@ -86,7 +102,13 @@ class ImpClient(discord.Client):
             assert self.stratz is not None
             try:
                 summary = summarize(await self.stratz.fetch_history(account_id, match_count))
-                embed, image_path = make_embed(summary, self.root, self.cache_ttl)
+                config_path = config_path_for_guild(self.root, interaction.guild_id)
+                embed, image_path = make_embed(
+                    summary,
+                    self.root,
+                    self.cache_ttl,
+                    config_path=config_path,
+                )
             except UserError as exc:
                 await interaction.followup.send(str(exc), ephemeral=True)
                 return

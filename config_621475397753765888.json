@@ -1,0 +1,53 @@
+{
+  "_meta": {
+    "purpose": "服务器 621475397753765888 的专属评分配置。",
+    "input": "该服务器中的 IMP 查询结果。",
+    "output": "该服务器专用的评分文案和图片。",
+    "example": "load_rules(Path(\"config_621475397753765888.json\"))"
+  },
+  "unavailable": {
+    "text": "神秘嘉宾！常猪欢迎你！",
+    "image": "assets/抱猪_1.jpg"
+  },
+  "rules": [
+    {
+      "min": null,
+      "title": "黄猪",
+      "text": "目标玩家近期平均IMP为：{average}\n一眼盯真 鉴定为",
+      "image": "assets/黄猪.png"
+    },
+    {
+      "min": -10,
+      "include_min": false,
+      "title": "王猪",
+      "text": "目标玩家近期平均IMP为：{average}\n一眼盯真 鉴定为",
+      "image": "assets/王猪.png"
+    },
+    {
+      "min": -5,
+      "include_min": false,
+      "title": "猪bee",
+      "text": "目标玩家近期平均IMP为：{average}\n一眼盯真 鉴定为",
+      "image": "assets/猪bee.webp"
+    },
+    {
+      "min": 0,
+      "title": "不赖猪",
+      "text": "目标玩家近期平均IMP为：{average}\n一眼盯真 鉴定为",
+      "image": "assets/不赖猪.jpg"
+    },
+    {
+      "min": 5,
+      "title": "好猪",
+      "text": "目标玩家近期平均IMP为：{average}\n一眼盯真 鉴定为",
+      "image": "assets/好猪好猪.webp"
+    },
+    {
+      "min": 10,
+      "include_min": false,
+      "title": "ICE猪",
+      "text": "目标玩家近期平均IMP为：{average}\n一眼盯真 鉴定为",
+      "image": "assets/ice猪.png"
+    }
+  ]
+}

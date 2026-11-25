@@ -501,6 +501,7 @@ class DiscordCommandTests(unittest.IsolatedAsyncioTestCase):
         self.client.stratz = SimpleNamespace(fetch_history=AsyncMock(return_value=history([10] * 20)))
         self.command = self.client.tree.get_command(COMMAND_NAME)
         self.interaction = SimpleNamespace(
+            guild_id=None,
             response=SimpleNamespace(send_message=AsyncMock(), defer=AsyncMock()),
             followup=SimpleNamespace(send=AsyncMock()),
             user=SimpleNamespace(id=42),
