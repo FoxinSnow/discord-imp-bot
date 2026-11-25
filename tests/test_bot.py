@@ -652,7 +652,7 @@ class DiscordCommandTests(unittest.IsolatedAsyncioTestCase):
                     self.client.tree.sync.assert_awaited_once_with(guild=guild)
                     self.assertEqual(
                         {command.name for command in self.client.tree.get_commands(guild=guild)},
-                        {"查询受教育程度", "查询"},
+                        {"查询受教育程度", "查询", "reboot"},
                     )
                 else:
                     self.client.tree.copy_global_to.assert_not_called()

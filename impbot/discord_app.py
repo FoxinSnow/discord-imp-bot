@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 from pathlib import Path
 
 import aiohttp
@@ -17,6 +19,8 @@ from .stratz import StratzClient
 LOGGER = logging.getLogger(__name__)
 COMMAND_NAME = "查询受教育程度"
 COMMAND_NAMES = (COMMAND_NAME, "查询")
+REBOOT_COMMAND_NAME = "reboot"
+REBOOT_ADMIN_USER_ID = 556537278118232066
 
 
 def config_path_for_guild(root: Path, guild_id: int | None) -> Path:
@@ -137,6 +141,17 @@ class ImpClient(discord.Client):
                 description=f"根据 STRATZ 最近有效 IMP 鉴定受教育程度（默认 {DEFAULT_MATCH_COUNT} 把有效对局）",
                 callback=query_education,
             ))
+
+        @self.tree.command(name=REBOOT_COMMAND_NAME, description="请求托管服务器重启机器人")
+        @app_commands.guild_only()
+        async def reboot(interaction: discord.Interaction) -> None:
+            if interaction.user.id != REBOOT_ADMIN_USER_ID:
+                await interaction.response.send_message("你没有权限重启机器人。", ephemeral=True)
+                return
+            await interaction.response.send_message("正在拉取更新并重启机器人。")
+            await asyncio.sleep(1)
+            # The hosting panel pulls the latest commit when exit code 1 triggers a restart.
+            os._exit(1)
 
         @self.tree.error
         async def on_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
